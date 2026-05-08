@@ -119,8 +119,8 @@ match [1, 2] {
 Like Koka, `x.f(y)` desugars to `f(x, y)`:
 
 ```moka
-"moka".str
-xs.len
+[1, 2, 3].len
+"moka".type
 ```
 
 ## Layout Rule
@@ -225,10 +225,9 @@ Inside the override body, calling the same function name refers to the previous 
 
 ## Project Structure
 
-- [moka.mbt](C:/Users/lenovo/Documents/moonbit/moka/moka.mbt): interpreter implementation
-- [moka_test.mbt](C:/Users/lenovo/Documents/moonbit/moka/moka_test.mbt): black-box tests
-- [cmd/main/main.mbt](C:/Users/lenovo/Documents/moonbit/moka/cmd/main/main.mbt): simple CLI entry point
-- [reference](C:/Users/lenovo/Documents/moonbit/moka/reference): reference material, including Koka documentation and grammar sources
+- [moka.mbt](./moka.mbt): interpreter implementation
+- [moka_test.mbt](./moka_test.mbt): black-box tests
+- [cmd/main/main.mbt](./cmd/main/main.mbt): simple CLI entry point
 
 ## Development Notes
 
