@@ -37,3 +37,38 @@ test "lists indexing and builtins feel dynamic" {
   let result = @moka.eval(source) catch { _ => panic() }
   inspect(result, content="\"two\"")
 }
+
+///|
+test "with supports trailing lambda style composition" {
+  let source =
+    #|fun twice(f) { f(); f() }
+    #|var n = 0
+    #|with twice
+    #|with twice
+    #|{ n := n + 1 }
+    #|n
+  let result = @moka.eval(source) catch { _ => panic() }
+  inspect(result, content="4")
+}
+
+///|
+test "with binding passes produced value into body" {
+  let source =
+    #|fun supply(f) { f(21) }
+    #|with x <- supply
+    #|x + 21
+  let result = @moka.eval(source) catch { _ => panic() }
+  inspect(result, content="42")
+}
+
+///|
+test "match handles literals bindings and lists" {
+  let source =
+    #|match [1, 2] {
+    #|  [] -> 0
+    #|  [x, y] -> x + y
+    #|  _ -> 99
+    #|}
+  let result = @moka.eval(source) catch { _ => panic() }
+  inspect(result, content="3")
+}

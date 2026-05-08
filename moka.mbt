@@ -54,8 +54,12 @@ priv enum TokenKind {
   TkFun
   TkFn
   TkIf
+  TkMatch
+  TkWith
   TkThen
   TkElse
+  TkLeftArrow
+  TkRightArrow
   TkTrue
   TkFalse
   TkNull
@@ -83,7 +87,25 @@ priv enum Expr {
   Call(Expr, Array[Expr])
   Index(Expr, Expr)
   Assign(String, Expr)
+  Match(Expr, Array[MatchCase])
   Block(Array[Stmt])
+}
+
+///|
+priv struct MatchCase {
+  pattern : Pattern
+  body : Expr
+}
+
+///|
+priv enum Pattern {
+  Wildcard
+  Binding(String)
+  Null
+  Bool(Bool)
+  Int(Int)
+  String(String)
+  List(Array[Pattern])
 }
 
 ///|
@@ -91,7 +113,14 @@ priv enum Stmt {
   Val(String, Expr)
   Var(String, Expr)
   Fun(String, Array[String], Expr)
+  With(WithBinding, Expr, Stmt)
   Expr(Expr)
+}
+
+///|
+priv enum WithBinding {
+  None
+  Bind(String)
 }
 
 ///|
@@ -177,6 +206,8 @@ fn keyword_or_ident(name : String) -> TokenKind {
     "fun" => TkFun
     "fn" => TkFn
     "if" => TkIf
+    "match" => TkMatch
+    "with" => TkWith
     "then" => TkThen
     "else" => TkElse
     "true" => TkTrue
@@ -325,7 +356,8 @@ fn tokenize(source : String) -> Array[Token] raise MokaError {
       }
       Some('-') => {
         lexer.advance() |> ignore
-        tokens.push(make_token(TkMinus, line, column))
+        let kind = if lexer.match_char('>') { TkRightArrow } else { TkMinus }
+        tokens.push(make_token(kind, line, column))
       }
       Some('*') => {
         lexer.advance() |> ignore
@@ -358,7 +390,13 @@ fn tokenize(source : String) -> Array[Token] raise MokaError {
       }
       Some('<') => {
         lexer.advance() |> ignore
-        let kind = if lexer.match_char('=') { TkLessEqual } else { TkLess }
+        let kind = if lexer.match_char('=') {
+          TkLessEqual
+        } else if lexer.match_char('-') {
+          TkLeftArrow
+        } else {
+          TkLess
+        }
         tokens.push(make_token(kind, line, column))
       }
       Some('>') => {
@@ -495,8 +533,33 @@ fn Parser::parse_statement(self : Parser) -> Stmt raise MokaError {
       self.skip_separators()
       Stmt::Fun(name, params, self.parse_expr())
     }
+    TkWith => self.parse_with_statement()
     _ => Stmt::Expr(self.parse_expr())
   }
+}
+
+///|
+fn Parser::parse_with_statement(self : Parser) -> Stmt raise MokaError {
+  self.expect_kind(TkWith, "expected 'with'")
+  let binding = match self.peek().kind {
+    TkIdent(name) =>
+      if self.index + 1 < self.tokens.length() &&
+        self.tokens[self.index + 1].kind == TkLeftArrow {
+        self.advance() |> ignore
+        self.advance() |> ignore
+        WithBinding::Bind(name)
+      } else {
+        WithBinding::None
+      }
+    _ => WithBinding::None
+  }
+  let handler = self.parse_expr()
+  self.skip_separators()
+  guard !self.at_end() else {
+    raise Parse("`with` expects a following statement or block")
+  }
+  let body = self.parse_statement()
+  Stmt::With(binding, handler, body)
 }
 
 ///|
@@ -719,6 +782,7 @@ fn Parser::parse_primary(self : Parser) -> Expr raise MokaError {
       expr
     }
     TkLBracket => self.finish_list()
+    TkMatch => self.finish_match()
     TkLBrace => Expr::Block(self.finish_block())
     TkIf => self.finish_if()
     TkFn => {
@@ -728,6 +792,61 @@ fn Parser::parse_primary(self : Parser) -> Expr raise MokaError {
     }
     _ => parser_error(token, "unexpected token in expression")
   }
+}
+
+///|
+fn Parser::finish_match(self : Parser) -> Expr raise MokaError {
+  let subject = self.parse_expr()
+  self.skip_separators()
+  self.expect_kind(TkLBrace, "expected '{' after match subject")
+  self.skip_separators()
+  let cases : Array[MatchCase] = []
+  while self.peek().kind != TkRBrace {
+    let pattern = self.parse_pattern()
+    self.expect_kind(
+      TkRightArrow,
+      "expected '->' between match pattern and body",
+    )
+    let body = self.parse_expr()
+    cases.push({ pattern, body })
+    self.skip_separators()
+  }
+  self.expect_kind(TkRBrace, "expected '}' after match cases")
+  Expr::Match(subject, cases)
+}
+
+///|
+fn Parser::parse_pattern(self : Parser) -> Pattern raise MokaError {
+  let token = self.advance()
+  match token.kind {
+    TkNull => Pattern::Null
+    TkTrue => Pattern::Bool(true)
+    TkFalse => Pattern::Bool(false)
+    TkInt(value) => Pattern::Int(value)
+    TkString(value) => Pattern::String(value)
+    TkIdent(name) =>
+      if name == "_" {
+        Pattern::Wildcard
+      } else {
+        Pattern::Binding(name)
+      }
+    TkLBracket => self.finish_list_pattern()
+    _ => parser_error(token, "unsupported match pattern")
+  }
+}
+
+///|
+fn Parser::finish_list_pattern(self : Parser) -> Pattern raise MokaError {
+  let items : Array[Pattern] = []
+  if self.peek().kind != TkRBracket {
+    while true {
+      items.push(self.parse_pattern())
+      guard self.peek().kind == TkComma else { break }
+      self.advance() |> ignore
+    }
+  }
+  self.expect_kind(TkRBracket, "expected ']' after list pattern")
+  Pattern::List(items)
 }
 
 ///|
@@ -1077,6 +1196,8 @@ fn eval_stmt(
       )
       Value::Null
     }
+    Stmt::With(binding, handler, body) =>
+      eval_with_stmt(runtime, env_id, binding, handler, body)
     Stmt::Expr(expr) => eval_expr(runtime, env_id, expr)
   }
 }
@@ -1126,10 +1247,98 @@ fn eval_expr(
       )
     Expr::Assign(name, value) =>
       runtime.assign(env_id, name, eval_expr(runtime, env_id, value))
+    Expr::Match(subject, cases) =>
+      eval_match_expr(runtime, env_id, subject, cases)
     Expr::Block(stmts) => {
       let block_env = runtime.new_env(env_id)
       eval_statements(runtime, block_env, stmts)
     }
+  }
+}
+
+///|
+fn stmt_to_block_expr(stmt : Stmt) -> Expr {
+  Expr::Block([stmt])
+}
+
+///|
+fn eval_with_stmt(
+  runtime : Runtime,
+  env_id : Int,
+  binding : WithBinding,
+  handler : Expr,
+  body : Stmt,
+) -> Value raise MokaError {
+  let fn_value = match binding {
+    WithBinding::None =>
+      Value::Function(
+        FunctionValue::User(UserClosure::{
+          name: None,
+          params: [],
+          body: stmt_to_block_expr(body),
+          env: env_id,
+        }),
+      )
+    WithBinding::Bind(name) =>
+      Value::Function(
+        FunctionValue::User(UserClosure::{
+          name: None,
+          params: [name],
+          body: stmt_to_block_expr(body),
+          env: env_id,
+        }),
+      )
+  }
+  apply_function(runtime, eval_expr(runtime, env_id, handler), [fn_value])
+}
+
+///|
+fn eval_match_expr(
+  runtime : Runtime,
+  env_id : Int,
+  subject : Expr,
+  cases : Array[MatchCase],
+) -> Value raise MokaError {
+  let value = eval_expr(runtime, env_id, subject)
+  for case_ in cases {
+    let case_env = runtime.new_env(env_id)
+    if pattern_matches(runtime, case_env, case_.pattern, value) {
+      return eval_expr(runtime, case_env, case_.body)
+    }
+  }
+  runtime_error("non-exhaustive match")
+}
+
+///|
+fn pattern_matches(
+  runtime : Runtime,
+  env_id : Int,
+  pattern : Pattern,
+  value : Value,
+) -> Bool {
+  match pattern {
+    Pattern::Wildcard => true
+    Pattern::Binding(name) => {
+      runtime.bind_value(env_id, name, value, false)
+      true
+    }
+    Pattern::Null => value_equal(value, Value::Null)
+    Pattern::Bool(flag) => value_equal(value, Value::Bool(flag))
+    Pattern::Int(number) => value_equal(value, Value::Int(number))
+    Pattern::String(text) => value_equal(value, Value::String(text))
+    Pattern::List(patterns) =>
+      match value {
+        Value::List(items) => {
+          guard patterns.length() == items.length() else { return false }
+          for i in 0..<patterns.length() {
+            guard pattern_matches(runtime, env_id, patterns[i], items[i]) else {
+              return false
+            }
+          }
+          true
+        }
+        _ => false
+      }
   }
 }
 
