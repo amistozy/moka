@@ -1,6 +1,7 @@
-// import {
-//   "username/moka" @lib,
-// }
+import {
+  "moonbitlang/core/env" @env,
+  "username/moka" @moka,
+}
 
 options(
   "is-main": true,
