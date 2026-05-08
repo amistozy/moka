@@ -110,22 +110,61 @@ test "elif follows koka style branching" {
 }
 
 ///|
-test "with val provides dynamic style scoped binding" {
+test "with val dynamically binds across function call boundaries" {
   let source =
     #|fun pretty(d)
     #|  str(width) + ":" + d
-    #|with val width = 40
-    #|pretty("doc")
+    #|fun pretty_thin(d) {
+    #|  with val width = 40
+    #|  pretty(d)
+    #|}
+    #|pretty_thin("doc")
   let result = @moka.eval(source) catch { _ => panic() }
   inspect(result, content="\"40:doc\"")
 }
 
 ///|
-test "with val can shadow previous binding" {
+test "with val can shadow previous dynamic binding" {
   let source =
-    #|with val width = 40
-    #|with val width = width + 2
-    #|str(width)
+    #|fun read_width()
+    #|  str(width)
+    #|fun outer() {
+    #|  with val width = 40
+    #|  inner()
+    #|}
+    #|fun inner() {
+    #|  with val width = width + 2
+    #|  read_width()
+    #|}
+    #|outer()
   let result = @moka.eval(source) catch { _ => panic() }
   inspect(result, content="\"42\"")
+}
+
+///|
+test "with fun dynamically binds across function call boundaries" {
+  let source =
+    #|fun hello()
+    #|  emit("world")
+    #|fun hello_console() {
+    #|  with fun emit(msg) "hello, " + msg
+    #|  hello()
+    #|}
+    #|hello_console()
+  let result = @moka.eval(source) catch { _ => panic() }
+  inspect(result, content="\"hello, world\"")
+}
+
+///|
+test "with fun matches koka ask const style across helper function" {
+  let source =
+    #|fun add_twice()
+    #|  ask() + ask()
+    #|fun ask_const() {
+    #|  with fun ask() 21
+    #|  add_twice()
+    #|}
+    #|ask_const()
+  let result = @moka.eval(source) catch { _ => panic() }
+  inspect(result, content="42")
 }

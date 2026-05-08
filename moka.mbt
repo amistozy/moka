@@ -559,6 +559,19 @@ fn Parser::parse_with_statement(
   until_rbrace : Bool,
 ) -> Stmt raise MokaError {
   self.expect_kind(TkWith, "expected 'with'")
+  if self.peek().kind == TkFun {
+    self.advance() |> ignore
+    let name = self.consume_ident("dynamic function binding")
+    let params = self.parse_params()
+    self.skip_separators()
+    let fun_body = self.parse_expr()
+    self.skip_separators()
+    guard !self.at_end() && !(until_rbrace && self.peek().kind == TkRBrace) else {
+      raise Parse("`with fun` expects a following statement or block")
+    }
+    let body = Stmt::Expr(Expr::Block(self.parse_stmt_list(until_rbrace)))
+    return Stmt::WithVal(name, Expr::Lambda(params, fun_body), body)
+  }
   if self.peek().kind == TkVal {
     self.advance() |> ignore
     let name = self.consume_ident("dynamic value binding")
