@@ -1002,7 +1002,7 @@ fn render_value(value : Value) -> String {
     Value::Int(number) => number.to_string()
     Value::String(text) => "\"\{text}\""
     Value::List(items) => {
-      let parts = items.map(item => render_value(item))
+      let parts = items.map(render_value)
       let body = parts.join(", ")
       "[\{body}]"
     }
