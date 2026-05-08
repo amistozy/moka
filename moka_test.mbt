@@ -19,9 +19,8 @@ test "closures capture lexical scope" {
 ///|
 test "mutable vars and recursion work" {
   let source =
-    #|fun fib(n) {
+    #|fun fib(n)
     #|  if n <= 1 then n else fib(n - 1) + fib(n - 2)
-    #|}
     #|var answer = fib(8)
     #|answer := answer + 1
     #|answer
