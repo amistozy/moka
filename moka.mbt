@@ -116,7 +116,7 @@ priv enum Stmt {
   Var(String, Expr)
   Fun(String, Array[String], Expr)
   WithVal(String, Expr, Stmt)
-  WithOverrideFun(String, Array[String], Expr, Stmt)
+  WithOverride(String, Array[String], Expr, Stmt)
   With(WithBinding, Expr, Stmt)
   Expr(Expr)
 }
@@ -564,17 +564,16 @@ fn Parser::parse_with_statement(
   self.expect_kind(TkWith, "expected 'with'")
   if self.peek().kind == TkOverride {
     self.advance() |> ignore
-    self.expect_kind(TkFun, "expected 'fun' after 'with override'")
-    let name = self.consume_ident("override function binding")
+    let name = self.consume_ident("override binding")
     let params = self.parse_params()
     self.skip_separators()
     let fun_body = self.parse_expr()
     self.skip_separators()
     guard !self.at_end() && !(until_rbrace && self.peek().kind == TkRBrace) else {
-      raise Parse("`with override fun` expects a following statement or block")
+      raise Parse("`with override` expects a following statement or block")
     }
     let body = Stmt::Expr(Expr::Block(self.parse_stmt_list(until_rbrace)))
-    return Stmt::WithOverrideFun(name, params, fun_body, body)
+    return Stmt::WithOverride(name, params, fun_body, body)
   }
   if self.peek().kind == TkFun {
     self.advance() |> ignore
@@ -1279,8 +1278,8 @@ fn eval_stmt(
       runtime.dynamic_envs.pop() |> ignore
       result
     }
-    Stmt::WithOverrideFun(name, params, fun_body, body) =>
-      eval_with_override_fun(runtime, env_id, name, params, fun_body, body)
+    Stmt::WithOverride(name, params, fun_body, body) =>
+      eval_with_override(runtime, env_id, name, params, fun_body, body)
     Stmt::With(binding, handler, body) =>
       eval_with_stmt(runtime, env_id, binding, handler, body)
     Stmt::Expr(expr) => eval_expr(runtime, env_id, expr)
@@ -1378,7 +1377,7 @@ fn eval_with_stmt(
 }
 
 ///|
-fn eval_with_override_fun(
+fn eval_with_override(
   runtime : Runtime,
   env_id : Int,
   name : String,

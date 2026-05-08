@@ -15,7 +15,7 @@ Moka currently supports:
 - Blocks with explicit braces
 - `if` / `elif` / `else`
 - `match` expressions
-- `with`, `with val`, `with fun`, and `with override fun`
+- `with`, `with val`, `with fun`, and `with override`
 - A few built-ins: `len`, `type`, and `str`
 
 ## Running
@@ -207,16 +207,16 @@ fun hello_console() {
 }
 ```
 
-### `with override fun`
+### `with override`
 
-`with override fun` wraps an existing dynamic function binding instead of replacing it outright:
+`with override` wraps an existing dynamic function binding instead of replacing it outright:
 
 ```moka
 fun hello()
   emit("hi")
 
 fun emit_quoted(action) {
-  with override fun emit(msg) emit("[" + msg + "]")
+  with override emit(msg) emit("[" + msg + "]")
   action()
 }
 ```

@@ -169,12 +169,12 @@ test "with fun matches koka ask const style across helper function" {
 }
 
 ///|
-test "with override fun wraps previous dynamic function" {
+test "with override wraps previous dynamic function" {
   let source =
     #|fun hello()
     #|  emit("hi")
     #|fun emit_quoted(action) {
-    #|  with override fun emit(msg) emit("[" + msg + "]")
+    #|  with override emit(msg) emit("[" + msg + "]")
     #|  action()
     #|}
     #|fun hello_console() {
