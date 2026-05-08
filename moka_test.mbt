@@ -52,6 +52,19 @@ test "with supports trailing lambda style composition" {
 }
 
 ///|
+test "with wraps all following statements in current scope" {
+  let source =
+    #|fun twice(f) { f(); f() }
+    #|var n = 0
+    #|with twice
+    #|n := n + 1
+    #|n := n + 2
+    #|n
+  let result = @moka.eval(source) catch { _ => panic() }
+  inspect(result, content="6")
+}
+
+///|
 test "with binding passes produced value into body" {
   let source =
     #|fun supply(f) { f(21) }
@@ -59,6 +72,17 @@ test "with binding passes produced value into body" {
     #|x + 21
   let result = @moka.eval(source) catch { _ => panic() }
   inspect(result, content="42")
+}
+
+///|
+test "with binding scopes over remaining statements" {
+  let source =
+    #|fun supply(f) { f(20) }
+    #|with x <- supply
+    #|val y = x + 1
+    #|x + y
+  let result = @moka.eval(source) catch { _ => panic() }
+  inspect(result, content="41")
 }
 
 ///|

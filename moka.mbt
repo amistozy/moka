@@ -505,17 +505,30 @@ fn Parser::expect_kind(
 
 ///|
 fn Parser::parse_program(self : Parser) -> Array[Stmt] raise MokaError {
+  self.parse_stmt_list(false)
+}
+
+///|
+fn Parser::parse_stmt_list(
+  self : Parser,
+  until_rbrace : Bool,
+) -> Array[Stmt] raise MokaError {
   let stmts : Array[Stmt] = []
   self.skip_separators()
-  while !self.at_end() {
-    stmts.push(self.parse_statement())
+  while !self.at_end() && !(until_rbrace && self.peek().kind == TkRBrace) {
+    if self.peek().kind == TkWith {
+      stmts.push(self.parse_with_statement(until_rbrace))
+      self.skip_separators()
+      break
+    }
+    stmts.push(self.parse_plain_statement())
     self.skip_separators()
   }
   stmts
 }
 
 ///|
-fn Parser::parse_statement(self : Parser) -> Stmt raise MokaError {
+fn Parser::parse_plain_statement(self : Parser) -> Stmt raise MokaError {
   match self.peek().kind {
     TkVal => {
       self.advance() |> ignore
@@ -536,13 +549,15 @@ fn Parser::parse_statement(self : Parser) -> Stmt raise MokaError {
       self.skip_separators()
       Stmt::Fun(name, params, self.parse_expr())
     }
-    TkWith => self.parse_with_statement()
     _ => Stmt::Expr(self.parse_expr())
   }
 }
 
 ///|
-fn Parser::parse_with_statement(self : Parser) -> Stmt raise MokaError {
+fn Parser::parse_with_statement(
+  self : Parser,
+  until_rbrace : Bool,
+) -> Stmt raise MokaError {
   self.expect_kind(TkWith, "expected 'with'")
   if self.peek().kind == TkVal {
     self.advance() |> ignore
@@ -550,10 +565,10 @@ fn Parser::parse_with_statement(self : Parser) -> Stmt raise MokaError {
     self.expect_kind(TkEqual, "expected '=' after dynamic value name")
     let value = self.parse_expr()
     self.skip_separators()
-    guard !self.at_end() else {
+    guard !self.at_end() && !(until_rbrace && self.peek().kind == TkRBrace) else {
       raise Parse("`with val` expects a following statement or block")
     }
-    let body = self.parse_statement()
+    let body = Stmt::Expr(Expr::Block(self.parse_stmt_list(until_rbrace)))
     return Stmt::WithVal(name, value, body)
   }
   let binding = match self.peek().kind {
@@ -570,10 +585,10 @@ fn Parser::parse_with_statement(self : Parser) -> Stmt raise MokaError {
   }
   let handler = self.parse_expr()
   self.skip_separators()
-  guard !self.at_end() else {
+  guard !self.at_end() && !(until_rbrace && self.peek().kind == TkRBrace) else {
     raise Parse("`with` expects a following statement or block")
   }
-  let body = self.parse_statement()
+  let body = Stmt::Expr(Expr::Block(self.parse_stmt_list(until_rbrace)))
   Stmt::With(binding, handler, body)
 }
 
@@ -880,13 +895,8 @@ fn Parser::finish_list(self : Parser) -> Expr raise MokaError {
 
 ///|
 fn Parser::finish_block(self : Parser) -> Array[Stmt] raise MokaError {
-  let stmts : Array[Stmt] = []
-  self.skip_separators()
-  while self.peek().kind != TkRBrace {
-    guard !self.at_end() else { raise Parse("unterminated block") }
-    stmts.push(self.parse_statement())
-    self.skip_separators()
-  }
+  let stmts = self.parse_stmt_list(true)
+  guard !self.at_end() else { raise Parse("unterminated block") }
   self.expect_kind(TkRBrace, "expected '}' after block")
   stmts
 }
