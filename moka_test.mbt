@@ -72,3 +72,36 @@ test "match handles literals bindings and lists" {
   let result = @moka.eval(source) catch { _ => panic() }
   inspect(result, content="3")
 }
+
+///|
+test "elif follows koka style branching" {
+  let source =
+    #|fun fib_tag(n)
+    #|  if n <= 0 then "zero"
+    #|  elif n == 1 then "one"
+    #|  else "many"
+    #|fib_tag(1)
+  let result = @moka.eval(source) catch { _ => panic() }
+  inspect(result, content="\"one\"")
+}
+
+///|
+test "with val provides dynamic style scoped binding" {
+  let source =
+    #|fun pretty(d)
+    #|  str(width) + ":" + d
+    #|with val width = 40
+    #|pretty("doc")
+  let result = @moka.eval(source) catch { _ => panic() }
+  inspect(result, content="\"40:doc\"")
+}
+
+///|
+test "with val can shadow previous binding" {
+  let source =
+    #|with val width = 40
+    #|with val width = width + 2
+    #|str(width)
+  let result = @moka.eval(source) catch { _ => panic() }
+  inspect(result, content="\"42\"")
+}

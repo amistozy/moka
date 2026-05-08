@@ -57,6 +57,7 @@ priv enum TokenKind {
   TkMatch
   TkWith
   TkThen
+  TkElif
   TkElse
   TkLeftArrow
   TkRightArrow
@@ -113,6 +114,7 @@ priv enum Stmt {
   Val(String, Expr)
   Var(String, Expr)
   Fun(String, Array[String], Expr)
+  WithVal(String, Expr, Stmt)
   With(WithBinding, Expr, Stmt)
   Expr(Expr)
 }
@@ -209,6 +211,7 @@ fn keyword_or_ident(name : String) -> TokenKind {
     "match" => TkMatch
     "with" => TkWith
     "then" => TkThen
+    "elif" => TkElif
     "else" => TkElse
     "true" => TkTrue
     "false" => TkFalse
@@ -541,6 +544,18 @@ fn Parser::parse_statement(self : Parser) -> Stmt raise MokaError {
 ///|
 fn Parser::parse_with_statement(self : Parser) -> Stmt raise MokaError {
   self.expect_kind(TkWith, "expected 'with'")
+  if self.peek().kind == TkVal {
+    self.advance() |> ignore
+    let name = self.consume_ident("dynamic value binding")
+    self.expect_kind(TkEqual, "expected '=' after dynamic value name")
+    let value = self.parse_expr()
+    self.skip_separators()
+    guard !self.at_end() else {
+      raise Parse("`with val` expects a following statement or block")
+    }
+    let body = self.parse_statement()
+    return Stmt::WithVal(name, value, body)
+  }
   let binding = match self.peek().kind {
     TkIdent(name) =>
       if self.index + 1 < self.tokens.length() &&
@@ -885,9 +900,14 @@ fn Parser::finish_if(self : Parser) -> Expr raise MokaError {
   }
   let then_branch = self.parse_expr()
   self.skip_separators()
-  self.expect_kind(TkElse, "expected 'else' in if expression")
-  self.skip_separators()
-  let else_branch = self.parse_expr()
+  let else_branch = if self.peek().kind == TkElif {
+    self.advance() |> ignore
+    self.finish_if()
+  } else {
+    self.expect_kind(TkElse, "expected 'else' in if expression")
+    self.skip_separators()
+    self.parse_expr()
+  }
   Expr::If(condition, then_branch, else_branch)
 }
 
@@ -943,6 +963,7 @@ priv struct EnvFrame {
 priv struct Runtime {
   cells : Array[Cell]
   envs : Array[EnvFrame]
+  dynamic_envs : Array[Int]
   global_env : Int
 }
 
@@ -953,7 +974,7 @@ fn[T] runtime_error(message : String) -> T raise MokaError {
 
 ///|
 fn Runtime::new() -> Runtime {
-  let runtime = { cells: [], envs: [], global_env: 0 }
+  let runtime = { cells: [], envs: [], dynamic_envs: [], global_env: 0 }
   let global_env = runtime.new_env(-1)
   runtime.install_native(global_env, {
     name: "len",
@@ -1031,10 +1052,18 @@ fn Runtime::get_value(
   env_id : Int,
   name : String,
 ) -> Value raise MokaError {
-  guard self.lookup_cell(env_id, name) is Some(cell_id) else {
-    runtime_error("undefined name '\{name}'")
+  if self.lookup_cell(env_id, name) is Some(cell_id) {
+    return self.cells[cell_id].value
   }
-  self.cells[cell_id].value
+  let mut i = self.dynamic_envs.length() - 1
+  while i >= 0 {
+    let dynamic_env = self.dynamic_envs[i]
+    if self.lookup_cell(dynamic_env, name) is Some(cell_id) {
+      return self.cells[cell_id].value
+    }
+    i = i - 1
+  }
+  runtime_error("undefined name '\{name}'")
 }
 
 ///|
@@ -1195,6 +1224,20 @@ fn eval_stmt(
         false,
       )
       Value::Null
+    }
+    Stmt::WithVal(name, value, body) => {
+      let with_env = runtime.new_env(env_id)
+      let bound_value = eval_expr(runtime, env_id, value)
+      runtime.bind_value(with_env, name, bound_value, false)
+      runtime.dynamic_envs.push(with_env)
+      let result = eval_stmt(runtime, env_id, body) catch {
+        err => {
+          runtime.dynamic_envs.pop() |> ignore
+          raise err
+        }
+      }
+      runtime.dynamic_envs.pop() |> ignore
+      result
     }
     Stmt::With(binding, handler, body) =>
       eval_with_stmt(runtime, env_id, binding, handler, body)
