@@ -168,3 +168,22 @@ test "with fun matches koka ask const style across helper function" {
   let result = @moka.eval(source) catch { _ => panic() }
   inspect(result, content="42")
 }
+
+///|
+test "with override fun wraps previous dynamic function" {
+  let source =
+    #|fun hello()
+    #|  emit("hi")
+    #|fun emit_quoted(action) {
+    #|  with override fun emit(msg) emit("[" + msg + "]")
+    #|  action()
+    #|}
+    #|fun hello_console() {
+    #|  with fun emit(msg) "<" + msg + ">"
+    #|  with emit_quoted
+    #|  hello()
+    #|}
+    #|hello_console()
+  let result = @moka.eval(source) catch { _ => panic() }
+  inspect(result, content="\"<[hi]>\"")
+}

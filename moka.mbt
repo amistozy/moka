@@ -56,6 +56,7 @@ priv enum TokenKind {
   TkIf
   TkMatch
   TkWith
+  TkOverride
   TkThen
   TkElif
   TkElse
@@ -115,6 +116,7 @@ priv enum Stmt {
   Var(String, Expr)
   Fun(String, Array[String], Expr)
   WithVal(String, Expr, Stmt)
+  WithOverrideFun(String, Array[String], Expr, Stmt)
   With(WithBinding, Expr, Stmt)
   Expr(Expr)
 }
@@ -210,6 +212,7 @@ fn keyword_or_ident(name : String) -> TokenKind {
     "if" => TkIf
     "match" => TkMatch
     "with" => TkWith
+    "override" => TkOverride
     "then" => TkThen
     "elif" => TkElif
     "else" => TkElse
@@ -559,6 +562,20 @@ fn Parser::parse_with_statement(
   until_rbrace : Bool,
 ) -> Stmt raise MokaError {
   self.expect_kind(TkWith, "expected 'with'")
+  if self.peek().kind == TkOverride {
+    self.advance() |> ignore
+    self.expect_kind(TkFun, "expected 'fun' after 'with override'")
+    let name = self.consume_ident("override function binding")
+    let params = self.parse_params()
+    self.skip_separators()
+    let fun_body = self.parse_expr()
+    self.skip_separators()
+    guard !self.at_end() && !(until_rbrace && self.peek().kind == TkRBrace) else {
+      raise Parse("`with override fun` expects a following statement or block")
+    }
+    let body = Stmt::Expr(Expr::Block(self.parse_stmt_list(until_rbrace)))
+    return Stmt::WithOverrideFun(name, params, fun_body, body)
+  }
   if self.peek().kind == TkFun {
     self.advance() |> ignore
     let name = self.consume_ident("dynamic function binding")
@@ -1262,6 +1279,8 @@ fn eval_stmt(
       runtime.dynamic_envs.pop() |> ignore
       result
     }
+    Stmt::WithOverrideFun(name, params, fun_body, body) =>
+      eval_with_override_fun(runtime, env_id, name, params, fun_body, body)
     Stmt::With(binding, handler, body) =>
       eval_with_stmt(runtime, env_id, binding, handler, body)
     Stmt::Expr(expr) => eval_expr(runtime, env_id, expr)
@@ -1356,6 +1375,39 @@ fn eval_with_stmt(
       )
   }
   apply_function(runtime, eval_expr(runtime, env_id, handler), [fn_value])
+}
+
+///|
+fn eval_with_override_fun(
+  runtime : Runtime,
+  env_id : Int,
+  name : String,
+  params : Array[String],
+  fun_body : Expr,
+  body : Stmt,
+) -> Value raise MokaError {
+  let previous = runtime.get_value(env_id, name)
+  let previous_env = runtime.new_env(env_id)
+  runtime.bind_value(previous_env, name, previous, false)
+  let override_value = Value::Function(
+    FunctionValue::User(UserClosure::{
+      name: None,
+      params,
+      body: fun_body,
+      env: previous_env,
+    }),
+  )
+  let with_env = runtime.new_env(env_id)
+  runtime.bind_value(with_env, name, override_value, false)
+  runtime.dynamic_envs.push(with_env)
+  let result = eval_stmt(runtime, env_id, body) catch {
+    err => {
+      runtime.dynamic_envs.pop() |> ignore
+      raise err
+    }
+  }
+  runtime.dynamic_envs.pop() |> ignore
+  result
 }
 
 ///|
