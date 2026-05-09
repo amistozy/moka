@@ -72,6 +72,7 @@ priv struct Token {
   kind : TokenKind
   line : Int
   column : Int
+  inserted : Bool
 }
 
 ///|
@@ -225,7 +226,12 @@ fn keyword_or_ident(name : String) -> TokenKind {
 
 ///|
 fn make_token(kind : TokenKind, line : Int, column : Int) -> Token {
-  { kind, line, column }
+  { kind, line, column, inserted: false }
+}
+
+///|
+fn make_inserted_token(kind : TokenKind, line : Int, column : Int) -> Token {
+  { kind, line, column, inserted: true }
 }
 
 ///|
@@ -300,7 +306,7 @@ fn Lexer::read_string(
 }
 
 ///|
-fn tokenize(source : String) -> Array[Token] raise MokaError {
+fn lex_tokens(source : String) -> Array[Token] raise MokaError {
   let lexer = Lexer::new(source)
   let tokens : Array[Token] = []
   while !lexer.at_end() {
@@ -310,10 +316,7 @@ fn tokenize(source : String) -> Array[Token] raise MokaError {
       None => break
       Some(ch) if ch == ' ' || ch == '\t' || ch == '\r' =>
         lexer.advance() |> ignore
-      Some('\n') => {
-        lexer.advance() |> ignore
-        tokens.push(make_token(TkSemi, line, column))
-      }
+      Some('\n') => lexer.advance() |> ignore
       Some('/') if lexer.peek_next() == Some('/') => lexer.skip_line_comment()
       Some('"') => tokens.push(lexer.read_string(line, column))
       Some(ch) if ch.is_digit(10) =>
@@ -437,6 +440,191 @@ fn tokenize(source : String) -> Array[Token] raise MokaError {
 }
 
 ///|
+priv struct LayoutContext {
+  open : Token
+  column : Int
+}
+
+///|
+fn is_semi_token(token : Token) -> Bool {
+  token.kind == TkSemi
+}
+
+///|
+fn is_open_brace_token(token : Token) -> Bool {
+  token.kind == TkLBrace
+}
+
+///|
+fn is_close_brace_token(token : Token) -> Bool {
+  token.kind == TkRBrace
+}
+
+///|
+fn is_start_continuation_token(kind : TokenKind) -> Bool {
+  match kind {
+    TkRParen
+    | TkRBracket
+    | TkComma
+    | TkLBrace
+    | TkRBrace
+    | TkThen
+    | TkElse
+    | TkElif
+    | TkRightArrow
+    | TkEqual
+    | TkColonEqual
+    | TkDot
+    | TkPlus
+    | TkMinus
+    | TkStar
+    | TkSlash
+    | TkPercent
+    | TkEqualEqual
+    | TkBangEqual
+    | TkLess
+    | TkLessEqual
+    | TkGreater
+    | TkGreaterEqual
+    | TkAndAnd
+    | TkOrOr => true
+    _ => false
+  }
+}
+
+///|
+fn is_end_continuation_token(kind : TokenKind) -> Bool {
+  match kind {
+    TkLParen
+    | TkLBracket
+    | TkComma
+    | TkLBrace
+    | TkDot
+    | TkPlus
+    | TkMinus
+    | TkStar
+    | TkSlash
+    | TkPercent
+    | TkEqualEqual
+    | TkBangEqual
+    | TkLess
+    | TkLessEqual
+    | TkGreater
+    | TkGreaterEqual
+    | TkAndAnd
+    | TkOrOr => true
+    _ => false
+  }
+}
+
+///|
+fn is_expr_continuation(prev : Token, next : Token) -> Bool {
+  is_start_continuation_token(next.kind) || is_end_continuation_token(prev.kind)
+}
+
+///|
+fn insert_semi(tokens : Array[Token], prev : Token) -> Unit {
+  if !is_semi_token(prev) {
+    tokens.push(make_inserted_token(TkSemi, prev.line, prev.column))
+  }
+}
+
+///|
+fn layout_tokens(raw_tokens : Array[Token]) -> Array[Token] raise MokaError {
+  guard raw_tokens.length() > 0 else { return [] }
+  let eof = raw_tokens[raw_tokens.length() - 1]
+  let result : Array[Token] = []
+  if raw_tokens.length() == 1 {
+    result.push(eof)
+    return result
+  }
+  let first = raw_tokens[0]
+  let start = make_inserted_token(TkSemi, first.line, -1)
+  let layouts : Array[LayoutContext] = []
+  let mut current = { open: start, column: 0 }
+  let mut prev = start
+  let mut index = 0
+  while index < raw_tokens.length() - 1 {
+    let token = raw_tokens[index]
+    let newline = token.line > prev.line
+    let indent = token.column
+    if newline && indent > current.column && !is_expr_continuation(prev, token) {
+      let inserted = make_inserted_token(TkLBrace, prev.line, prev.column)
+      result.push(inserted)
+      layouts.push(current)
+      current = { open: inserted, column: indent }
+      prev = inserted
+      continue
+    }
+    if newline &&
+      indent < current.column &&
+      !(is_close_brace_token(token) &&
+      !token.inserted &&
+      current.open.kind == TkLBrace &&
+      !current.open.inserted) {
+      insert_semi(result, prev)
+      let inserted = make_inserted_token(TkRBrace, prev.line, prev.column)
+      result.push(inserted)
+      guard layouts.pop() is Some(layout) else {
+        raise Parse(
+          "[line \{token.line}, column \{token.column}] invalid indentation",
+        )
+      }
+      current = layout
+      prev = inserted
+      continue
+    }
+    if is_open_brace_token(token) {
+      result.push(token)
+      let next_indent = if index + 1 < raw_tokens.length() - 1 {
+        raw_tokens[index + 1].column
+      } else {
+        current.column + 1
+      }
+      layouts.push(current)
+      current = { open: token, column: next_indent }
+      prev = token
+      index += 1
+      continue
+    }
+    if is_close_brace_token(token) {
+      insert_semi(result, prev)
+      result.push(token)
+      guard layouts.pop() is Some(layout) else {
+        raise Parse(
+          "[line \{token.line}, column \{token.column}] unmatched closing brace",
+        )
+      }
+      current = layout
+      prev = token
+      index += 1
+      continue
+    }
+    if newline && indent == current.column && !is_expr_continuation(prev, token) {
+      insert_semi(result, prev)
+    }
+    result.push(token)
+    prev = token
+    index += 1
+  }
+  while layouts.length() > 0 {
+    insert_semi(result, prev)
+    let inserted = make_inserted_token(TkRBrace, prev.line, prev.column)
+    result.push(inserted)
+    prev = inserted
+    guard layouts.pop() is Some(layout) else { break }
+    current = layout
+  }
+  result.push(eof)
+  result
+}
+
+///|
+fn tokenize(source : String) -> Array[Token] raise MokaError {
+  layout_tokens(lex_tokens(source))
+}
+
+///|
 priv struct Parser {
   tokens : Array[Token]
   mut index : Int
@@ -508,7 +696,11 @@ fn Parser::expect_kind(
 
 ///|
 fn Parser::parse_program(self : Parser) -> Array[Stmt] raise MokaError {
-  self.parse_stmt_list(false)
+  let stmts = self.parse_stmt_list(false)
+  guard self.at_end() else {
+    parser_error(self.peek(), "unexpected closing brace")
+  }
+  stmts
 }
 
 ///|
@@ -518,7 +710,7 @@ fn Parser::parse_stmt_list(
 ) -> Array[Stmt] raise MokaError {
   let stmts : Array[Stmt] = []
   self.skip_separators()
-  while !self.at_end() && !(until_rbrace && self.peek().kind == TkRBrace) {
+  while !self.at_end() && self.peek().kind != TkRBrace {
     if self.peek().kind == TkWith {
       stmts.push(self.parse_with_statement(until_rbrace))
       self.skip_separators()

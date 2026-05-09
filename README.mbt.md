@@ -12,6 +12,7 @@ Moka currently supports:
 - Lexical scope and closures
 - Recursive functions
 - Mutable variables with `:=`
+- Koka-style layout that inserts virtual statement separators and blocks from indentation
 - Blocks with explicit braces
 - `if` / `elif` / `else`
 - `match` expressions
@@ -59,7 +60,15 @@ fun add1(x)
   x + 1
 ```
 
-Multi-statement functions must use explicit braces:
+Multi-statement functions can also use indentation layout:
+
+```moka
+fun pair_sum(x, y)
+  val total = x + y
+  total
+```
+
+Explicit braces still work when you want them:
 
 ```moka
 fun pair_sum(x, y) {
@@ -93,7 +102,16 @@ fun fib_tag(n)
   else "many"
 ```
 
-If a branch needs multiple statements, use braces explicitly:
+Branches should usually use indentation blocks:
+
+```moka
+if ok then
+  val x = 1
+  x + 2
+else 0
+```
+
+Explicit braces still work when they read better:
 
 ```moka
 if ok then {
@@ -105,6 +123,15 @@ if ok then {
 ### Match
 
 `match` currently supports literal patterns, `_`, name bindings, and fixed-length list patterns:
+
+```moka
+match [1, 2]
+  [] -> 0
+  [x, y] -> x + y
+  _ -> 99
+```
+
+Explicit braces are also accepted:
 
 ```moka
 match [1, 2] {
@@ -125,13 +152,13 @@ Like Koka, `x.f(y)` desugars to `f(x, y)`:
 
 ## Layout Rule
 
-Moka currently uses a very simple rule:
+Moka now uses a Koka-style layout rule:
 
-- A newline is treated like a statement separator
-- An explicit `;` is also a statement separator
-- Only explicit `{ ... }` creates a block
-
-This means Moka does **not** currently implement Koka- or Haskell-style indentation layout. Indentation improves readability, but it does not create blocks by itself.
+- A newline at the same indentation usually inserts a virtual `;`
+- A deeper indentation usually opens a virtual `{ ... }` block
+- A dedent usually closes that virtual block
+- Explicit `;` and `{ ... }` still work
+- Continuation lines such as `.method()`, `else`, `elif`, or operator-led lines do not split the expression
 
 In practice:
 
@@ -145,13 +172,12 @@ fun add1(x)
 - This is also valid:
 
 ```moka
-fun work() {
+fun work()
   val x = 10
   x + 1
-}
 ```
 
-- But multi-statement bodies must still use braces:
+- Explicit braces still remain valid, but layout is preferred:
 
 ```moka
 fun work() {
@@ -179,6 +205,8 @@ n := n + 2
 n
 ```
 
+This follows the same shape shown in Koka's `learn/with` sample: `with` keeps swallowing the remaining statements in the current scope.
+
 ### `with val`
 
 `with val` installs a dynamic value binding for the remaining statements in the current scope:
@@ -187,10 +215,9 @@ n
 fun pretty(doc)
   str(width) + ":" + doc
 
-fun pretty_thin(doc) {
+fun pretty_thin(doc)
   with val width = 40
   pretty(doc)
-}
 ```
 
 ### `with fun`
@@ -201,10 +228,9 @@ fun pretty_thin(doc) {
 fun hello()
   emit("world")
 
-fun hello_console() {
+fun hello_console()
   with fun emit(msg) "hello, " + msg
   hello()
-}
 ```
 
 ### `with override`
@@ -215,13 +241,21 @@ fun hello_console() {
 fun hello()
   emit("hi")
 
-fun emit_quoted(action) {
+fun emit_quoted(action)
   with override emit(msg) emit("[" + msg + "]")
   action()
-}
 ```
 
 Inside the override body, calling the same function name refers to the previous dynamic binding, not the override itself.
+
+If you really want explicit delimiters, they still work, but they are secondary to layout style:
+
+```moka
+fun pair_sum(x, y) {
+  val total = x + y;
+  total
+}
+```
 
 ## Project Structure
 
