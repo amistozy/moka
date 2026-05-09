@@ -254,3 +254,32 @@ test "with override wraps previous dynamic function" {
   let result = @moka.eval(source) catch { _ => panic() }
   inspect(result, content="\"<[hi]>\"")
 }
+
+///|
+test "suspenders pass a trailing braced block as a zero arg lambda" {
+  let source =
+    #|fun twice(f)
+    #|  f()
+    #|  f()
+    #|var n = 0
+    #|twice {
+    #|  n := n + 1
+    #|}
+    #|n
+  let result = @moka.eval(source) catch { _ => panic() }
+  inspect(result, content="2")
+}
+
+///|
+test "layout after a callee becomes a trailing block lambda" {
+  let source =
+    #|fun twice(f)
+    #|  f()
+    #|  f()
+    #|var n = 0
+    #|twice
+    #|  n := n + 1
+    #|n
+  let result = @moka.eval(source) catch { _ => panic() }
+  inspect(result, content="2")
+}

@@ -396,6 +396,8 @@ fn Parser::parse_postfix(self : Parser) -> Expr raise MokaError {
         let args = self.parse_arguments()
         expr = Expr::Call(expr, args)
       }
+      TkLBrace if can_take_suspender(expr) =>
+        expr = Expr::Call(expr, [self.parse_suspender()])
       TkLBracket => {
         self.advance() |> ignore
         let index = self.parse_expr()
@@ -416,6 +418,20 @@ fn Parser::parse_postfix(self : Parser) -> Expr raise MokaError {
     }
   }
   expr
+}
+
+///|
+fn can_take_suspender(expr : Expr) -> Bool {
+  match expr {
+    Expr::Var(_) | Expr::Call(_, _) | Expr::Index(_, _) => true
+    _ => false
+  }
+}
+
+///|
+fn Parser::parse_suspender(self : Parser) -> Expr raise MokaError {
+  self.expect_kind(TkLBrace, "expected '{' to start a suspender block")
+  Expr::Lambda([], Expr::Block(self.finish_block()))
 }
 
 ///|
