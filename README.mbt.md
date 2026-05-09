@@ -1,32 +1,41 @@
 # Moka
 
 Moka is a small dynamic language interpreter written in MoonBit.
-Its surface syntax is inspired by [Koka](https://koka-lang.github.io/), but the implementation is intentionally much smaller and easier to experiment with.
+Its surface syntax is inspired by [Koka](https://koka-lang.github.io/), while the implementation stays intentionally compact and easy to modify.
 
-The project currently focuses on:
+Moka is not a Koka implementation.
+It borrows a few familiar ideas, especially layout and dynamic binding, but keeps the runtime model lightweight and experimental.
+
+## Goals
+
+Moka currently aims to be:
+
+- small enough to understand in one sitting
+- expressive enough to explore language ideas quickly
+- structured enough to grow without collapsing into one giant file
+
+The project is especially focused on:
 
 - a compact interpreter core
-- Koka-style layout syntax
-- dynamic binding through `with`
-- a codebase that is easy to extend
+- Koka-style layout-sensitive syntax
+- dynamic binding through `with` and `handler`
+- a codebase that is pleasant to extend
 
-Moka is not a Koka implementation. It borrows some familiar syntax and ideas, but keeps the runtime and language model intentionally lightweight.
-
-## Status
+## Current Features
 
 Moka currently supports:
 
-- dynamic values: `null`, `bool`, `int`, `string`, `list`, and functions
+- values: `null`, `bool`, `int`, `string`, `list`, and functions
 - lexical scope and closures
 - recursive functions
 - mutable variables with `:=`
-- Koka-style layout that inserts virtual statement separators and blocks from indentation
-- explicit braces and semicolons as optional syntax
+- layout-based blocks and separators inferred from indentation
+- optional explicit braces and semicolons
 - `if` / `elif` / `else`
 - `match` expressions
-- `with`, `with val`, `with fun`, and `with override`
-- `handler` and `with handler` for dynamic value/function handlers
-- a small set of built-ins: `len`, `type`, and `str`
+- `handler` expressions
+- `with`, `with val`, `with fun`, `with handler`, and `with override`
+- a small builtin set: `len`, `type`, and `str`
 
 ## Running
 
@@ -72,14 +81,14 @@ count := count + 1
 
 ### Functions
 
-Single-expression functions are written naturally with layout:
+Single-expression functions fit naturally into layout-based syntax:
 
 ```moka
 fun add1(x)
   x + 1
 ```
 
-Multi-statement functions also prefer layout:
+Multi-statement bodies also use indentation:
 
 ```moka
 fun pair_sum(x, y)
@@ -93,7 +102,7 @@ Anonymous functions use `fn`:
 val add = fn(x, y) x + y
 ```
 
-Explicit braces still work when you want them:
+Braces remain available when you want a more explicit shape:
 
 ```moka
 fun pair_sum(x, y) {
@@ -111,7 +120,7 @@ fun fib_tag(n)
   else "many"
 ```
 
-Branches can be indentation blocks:
+Branches can themselves be multi-statement blocks:
 
 ```moka
 fun classify(flag)
@@ -120,15 +129,6 @@ fun classify(flag)
     x + 2
   else
     0
-```
-
-Explicit braces are also accepted:
-
-```moka
-if ok then {
-  val x = 1;
-  x + 2
-} else 0
 ```
 
 ### Match
@@ -140,7 +140,7 @@ if ok then {
 - name bindings
 - fixed-length list patterns
 
-Preferred layout style:
+Typical layout style:
 
 ```moka
 match [1, 2]
@@ -170,14 +170,14 @@ Like Koka, `x.f(y)` desugars to `f(x, y)`:
 
 ## Layout Rules
 
-Moka now prefers Koka-style layout.
+Moka prefers Koka-style layout.
 
 In practice:
 
 - a newline at the same indentation usually inserts a virtual `;`
 - a deeper indentation usually opens a virtual block
 - a dedent usually closes that virtual block
-- continuation lines such as `.method()`, `else`, `elif`, or operator-led lines do not break the expression
+- continuation lines such as `.method()`, `else`, `elif`, or operator-led lines do not end the current expression
 - explicit `{ ... }` and `;` are still supported
 
 Typical style:
@@ -189,7 +189,7 @@ fun work()
   x + y
 ```
 
-More explicit style is still valid:
+More explicit style is also valid:
 
 ```moka
 fun work() {
@@ -199,14 +199,13 @@ fun work() {
 }
 ```
 
-## Dynamic Binding with `with`
+## Dynamic Binding
 
 One of the most Koka-like parts of Moka is dynamic binding.
 
 ### `with`
 
-`with` wraps the remaining statements in the current scope into a trailing function body.
-This follows the same overall shape as the `with` examples in Koka's `learn/with` sample.
+`with` wraps the remaining statements in the current scope into a trailing function body:
 
 ```moka
 fun twice(f)
@@ -223,7 +222,7 @@ n
 ### `handler`
 
 Moka also has a minimal `handler` expression.
-For now, handlers support `val` and `fun` clauses and are applied to a zero-argument action function.
+Handlers currently support `val` and `fun` clauses and are applied to a zero-argument action function.
 
 ```moka
 val h = handler
@@ -247,7 +246,7 @@ ask_twice()
 
 ### `with val`
 
-`with val` is sugar for a one-clause handler with a `val` binding:
+`with val` is sugar for a single-clause handler that installs a dynamic value:
 
 ```moka
 fun pretty(doc)
@@ -260,7 +259,7 @@ fun pretty_thin(doc)
 
 ### `with fun`
 
-`with fun` is sugar for a one-clause handler with a `fun` binding:
+`with fun` is sugar for a single-clause handler that installs a dynamic function:
 
 ```moka
 fun hello()
@@ -273,7 +272,7 @@ fun hello_console()
 
 ### `with override`
 
-`with override` wraps the previous dynamic binding instead of replacing it directly:
+`with override` wraps the previous dynamic binding instead of replacing it outright:
 
 ```moka
 fun hello()
@@ -284,12 +283,19 @@ fun emit_quoted(action)
   action()
 ```
 
-Inside the override body, calling the same function name refers to the previous dynamic binding, not the override itself.
+Inside the override body, calling the same function name refers to the previous dynamic binding rather than the override itself.
 
 ## Project Structure
 
-- [moka.mbt](./moka.mbt): lexer, parser, evaluator, and runtime
+The interpreter is now split by responsibility:
+
+- [errors.mbt](./errors.mbt): public error type and rendering
+- [syntax.mbt](./syntax.mbt): tokens, AST nodes, and shared internal data types
+- [lexer.mbt](./lexer.mbt): lexer and layout token insertion
+- [parser.mbt](./parser.mbt): parser and internal syntax construction
+- [runtime.mbt](./runtime.mbt): runtime values, evaluation, and public `eval`
 - [moka_test.mbt](./moka_test.mbt): black-box language tests
+- [moka_wbtest.mbt](./moka_wbtest.mbt): white-box tests for internal behavior
 - [cmd/main/main.mbt](./cmd/main/main.mbt): simple CLI entry point
 
 ## Development
@@ -302,4 +308,15 @@ moon fmt
 moon test
 ```
 
-If the public package surface changes, `moon info` updates `pkg.generated.mbti`.
+`moon info` updates [pkg.generated.mbti](./pkg.generated.mbti) when the public package surface changes.
+
+If you are extending the language, a practical workflow is:
+
+1. update the lexer, parser, or runtime in the relevant split file
+2. add or adjust tests in [moka_test.mbt](./moka_test.mbt) or [moka_wbtest.mbt](./moka_wbtest.mbt)
+3. run `moon test`
+4. run `moon info && moon fmt`
+
+## References
+
+This repository also includes a [reference](./reference) directory with upstream-style MoonBit code and parser implementations that are useful when evolving Moka's structure and style.
