@@ -316,7 +316,3 @@ If you are extending the language, a practical workflow is:
 2. add or adjust tests in [moka_test.mbt](./moka_test.mbt) or [moka_wbtest.mbt](./moka_wbtest.mbt)
 3. run `moon test`
 4. run `moon info && moon fmt`
-
-## References
-
-This repository also includes a [reference](./reference) directory with upstream-style MoonBit code and parser implementations that are useful when evolving Moka's structure and style.
