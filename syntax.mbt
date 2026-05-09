@@ -58,6 +58,70 @@ priv struct Token {
 }
 
 ///|
+priv enum SurfaceArg {
+  Expr(SurfaceExpr)
+  Lambda(Array[String], SurfaceExpr)
+  Block(Array[SurfaceStmt])
+}
+
+///|
+priv enum SurfaceExpr {
+  Null
+  Bool(Bool)
+  Int(Int)
+  String(String)
+  Var(String)
+  List(Array[SurfaceExpr])
+  Unary(String, SurfaceExpr)
+  Binary(String, SurfaceExpr, SurfaceExpr)
+  If(SurfaceExpr, SurfaceExpr, SurfaceExpr)
+  Lambda(Array[String], SurfaceExpr)
+  Apply(SurfaceExpr, Array[SurfaceArg])
+  DotCall(SurfaceExpr, String, Array[SurfaceArg])
+  Index(SurfaceExpr, SurfaceExpr)
+  Assign(String, SurfaceExpr)
+  Match(SurfaceExpr, Array[SurfaceMatchCase])
+  Handler(Array[SurfaceHandlerClause], SurfaceReturnClause?)
+  Block(Array[SurfaceStmt])
+}
+
+///|
+priv struct SurfaceMatchCase {
+  pattern : Pattern
+  body : SurfaceExpr
+}
+
+///|
+priv enum SurfaceHandlerClause {
+  Val(String, SurfaceExpr)
+  Fun(String, Array[String], SurfaceExpr)
+}
+
+///|
+priv struct SurfaceReturnClause {
+  param : String
+  body : SurfaceExpr
+}
+
+///|
+priv enum SurfaceStmt {
+  Val(String, SurfaceExpr)
+  Var(String, SurfaceExpr)
+  Fun(String, Array[String], SurfaceExpr)
+  WithOverride(String, Array[String], SurfaceExpr, Array[SurfaceStmt])
+  WithExpr(SurfaceWithBinding, SurfaceExpr, Array[SurfaceStmt])
+  WithFun(String, Array[String], SurfaceExpr, Array[SurfaceStmt])
+  WithVal(String, SurfaceExpr, Array[SurfaceStmt])
+  Expr(SurfaceExpr)
+}
+
+///|
+priv enum SurfaceWithBinding {
+  None
+  Bind(String)
+}
+
+///|
 priv enum Expr {
   Null
   Bool(Bool)
@@ -112,12 +176,5 @@ priv enum Stmt {
   Var(String, Expr)
   Fun(String, Array[String], Expr)
   WithOverride(String, Array[String], Expr, Stmt)
-  With(WithBinding, Expr, Stmt)
   Expr(Expr)
-}
-
-///|
-priv enum WithBinding {
-  None
-  Bind(String)
 }

@@ -34,7 +34,7 @@ priv struct HandlerValue {
 priv struct NativeFn {
   name : String
   arity : Int
-  call : (Array[Value]) -> Value raise MokaError
+  call : (Runtime, Array[Value]) -> Value raise MokaError
 }
 
 ///|
@@ -69,17 +69,28 @@ fn Runtime::new() -> Runtime {
   runtime.install_native(global_env, {
     name: "len",
     arity: 1,
-    call: (args : Array[Value]) => builtin_len(args),
+    call: (runtime : Runtime, args : Array[Value]) => builtin_len(runtime, args),
   })
   runtime.install_native(global_env, {
     name: "type",
     arity: 1,
-    call: (args : Array[Value]) => Value::String(type_name(args[0])),
+    call: (_runtime : Runtime, args : Array[Value]) => {
+      Value::String(type_name(args[0]))
+    },
   })
   runtime.install_native(global_env, {
     name: "str",
     arity: 1,
-    call: (args : Array[Value]) => Value::String(value_to_plain_string(args[0])),
+    call: (_runtime : Runtime, args : Array[Value]) => {
+      Value::String(value_to_plain_string(args[0]))
+    },
+  })
+  runtime.install_native(global_env, {
+    name: "finally",
+    arity: 2,
+    call: (runtime : Runtime, args : Array[Value]) => {
+      builtin_finally(runtime, args)
+    },
   })
   { ..runtime, global_env, }
 }
@@ -264,12 +275,32 @@ fn value_to_plain_string(value : Value) -> String {
 }
 
 ///|
-fn builtin_len(args : Array[Value]) -> Value raise MokaError {
+fn builtin_len(
+  _runtime : Runtime,
+  args : Array[Value],
+) -> Value raise MokaError {
   match args[0] {
     Value::String(text) => Value::Int(text.length())
     Value::List(items) => Value::Int(items.length())
     _ => runtime_error("len expects a string or list")
   }
+}
+
+///|
+fn builtin_finally(
+  runtime : Runtime,
+  args : Array[Value],
+) -> Value raise MokaError {
+  let cleanup = args[0]
+  let action = args[1]
+  let result = apply_function(runtime, action, []) catch {
+    err => {
+      apply_function(runtime, cleanup, []) |> ignore
+      raise err
+    }
+  }
+  apply_function(runtime, cleanup, []) |> ignore
+  result
 }
 
 ///|
@@ -318,8 +349,6 @@ fn eval_stmt(
     }
     Stmt::WithOverride(name, params, fun_body, body) =>
       eval_with_override(runtime, env_id, name, params, fun_body, body)
-    Stmt::With(binding, handler, body) =>
-      eval_with_stmt(runtime, env_id, binding, handler, body)
     Stmt::Expr(expr) => eval_expr(runtime, env_id, expr)
   }
 }
@@ -383,11 +412,6 @@ fn eval_expr(
 }
 
 ///|
-fn stmt_to_block_expr(stmt : Stmt) -> Expr {
-  Expr::Block([stmt])
-}
-
-///|
 fn install_handler_clauses(
   runtime : Runtime,
   handler_env : Int,
@@ -430,37 +454,6 @@ fn eval_return_clause(
   let return_env = runtime.new_env(handler_env)
   runtime.bind_value(return_env, clause.param, value, false)
   eval_expr(runtime, return_env, clause.body)
-}
-
-///|
-fn eval_with_stmt(
-  runtime : Runtime,
-  env_id : Int,
-  binding : WithBinding,
-  handler : Expr,
-  body : Stmt,
-) -> Value raise MokaError {
-  let fn_value = match binding {
-    WithBinding::None =>
-      Value::Function(
-        FunctionValue::User(UserClosure::{
-          name: None,
-          params: [],
-          body: stmt_to_block_expr(body),
-          env: env_id,
-        }),
-      )
-    WithBinding::Bind(name) =>
-      Value::Function(
-        FunctionValue::User(UserClosure::{
-          name: None,
-          params: [name],
-          body: stmt_to_block_expr(body),
-          env: env_id,
-        }),
-      )
-  }
-  apply_function(runtime, eval_expr(runtime, env_id, handler), [fn_value])
 }
 
 ///|
@@ -718,7 +711,7 @@ fn apply_function(
           "function '\{native.name}' expected \{native.arity} arguments but got \{args.length()}",
         )
       }
-      (native.call)(args)
+      (native.call)(runtime, args)
     }
     FunctionValue::User(closure) => {
       guard args.length() == closure.params.length() else {

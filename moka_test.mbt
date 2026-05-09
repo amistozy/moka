@@ -336,3 +336,56 @@ test "with handler uses return clause around wrapped body" {
   let result = @moka.eval(source) catch { _ => panic() }
   inspect(result, content="42")
 }
+
+///|
+test "finally builtin works with direct trailing blocks" {
+  let source =
+    #|var n = 0
+    #|finally {
+    #|  n := n + 1
+    #|} {
+    #|  n := n + 41
+    #|}
+    #|n
+  let result = @moka.eval(source) catch { _ => panic() }
+  inspect(result, content="42")
+}
+
+///|
+test "with finally desugars through builtin finally" {
+  let source =
+    #|var n = 0
+    #|with finally
+    #|  n := n + 1
+    #|n := n + 41
+    #|n
+  let result = @moka.eval(source) catch { _ => panic() }
+  inspect(result, content="41")
+}
+
+///|
+test "finally cleanup runs after action result is computed" {
+  let source =
+    #|var n = 0
+    #|val result = finally {
+    #|  n := n + 1
+    #|} {
+    #|  n := n + 41
+    #|  n
+    #|}
+    #|result
+  let result = @moka.eval(source) catch { _ => panic() }
+  inspect(result, content="41")
+}
+
+///|
+test "finally returns the action result after cleanup" {
+  let source =
+    #|finally {
+    #|  0
+    #|} {
+    #|  42
+    #|}
+  let result = @moka.eval(source) catch { _ => panic() }
+  inspect(result, content="42")
+}
