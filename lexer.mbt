@@ -85,6 +85,7 @@ fn keyword_or_ident(name : String) -> TokenKind {
     "match" => TkMatch
     "with" => TkWith
     "override" => TkOverride
+    "return" => TkReturn
     "then" => TkThen
     "elif" => TkElif
     "else" => TkElse

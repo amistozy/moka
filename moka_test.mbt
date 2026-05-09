@@ -305,3 +305,34 @@ test "dot call sugar works with trailing fn lambdas" {
   let result = @moka.eval(source) catch { _ => panic() }
   inspect(result, content="42")
 }
+
+///|
+test "handler return clause transforms final result" {
+  let source =
+    #|val h = handler
+    #|  return(x) x + 1
+    #|h(fn() 41)
+  let result = @moka.eval(source) catch { _ => panic() }
+  inspect(result, content="42")
+}
+
+///|
+test "handler return clause can read handler bindings" {
+  let source =
+    #|val h = handler
+    #|  val ask = 20
+    #|  return(x) x + ask
+    #|h(fn() 22)
+  let result = @moka.eval(source) catch { _ => panic() }
+  inspect(result, content="42")
+}
+
+///|
+test "with handler uses return clause around wrapped body" {
+  let source =
+    #|with handler
+    #|  return(x) x + 2
+    #|40
+  let result = @moka.eval(source) catch { _ => panic() }
+  inspect(result, content="42")
+}

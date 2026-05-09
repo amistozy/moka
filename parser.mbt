@@ -154,7 +154,7 @@ fn Parser::parse_with_statement(
     let body = Stmt::Expr(Expr::Block(self.parse_stmt_list(until_rbrace)))
     return Stmt::With(
       WithBinding::None,
-      Expr::Handler([HandlerClause::Fun(name, params, fun_body)]),
+      Expr::Handler([HandlerClause::Fun(name, params, fun_body)], None),
       body,
     )
   }
@@ -170,7 +170,7 @@ fn Parser::parse_with_statement(
     let body = Stmt::Expr(Expr::Block(self.parse_stmt_list(until_rbrace)))
     return Stmt::With(
       WithBinding::None,
-      Expr::Handler([HandlerClause::Val(name, value)]),
+      Expr::Handler([HandlerClause::Val(name, value)], None),
       body,
     )
   }
@@ -201,12 +201,33 @@ fn Parser::finish_handler(self : Parser) -> Expr raise MokaError {
   self.expect_kind(TkLBrace, "expected an indented handler block or '{'")
   self.skip_separators()
   let clauses : Array[HandlerClause] = []
+  let mut return_clause : ReturnClause? = None
   while self.peek().kind != TkRBrace {
-    clauses.push(self.parse_handler_clause())
+    if self.peek().kind == TkReturn {
+      if return_clause is Some(_) {
+        parser_error(
+          self.peek(),
+          "handler can contain at most one `return` clause",
+        )
+      }
+      return_clause = Some(self.parse_return_clause())
+    } else {
+      clauses.push(self.parse_handler_clause())
+    }
     self.skip_separators()
   }
   self.expect_kind(TkRBrace, "expected '}' after handler clauses")
-  Expr::Handler(clauses)
+  Expr::Handler(clauses, return_clause)
+}
+
+///|
+fn Parser::parse_return_clause(self : Parser) -> ReturnClause raise MokaError {
+  self.expect_kind(TkReturn, "expected `return` in handler")
+  self.expect_kind(TkLParen, "expected '(' after `return`")
+  let param = self.consume_ident("handler return clause")
+  self.expect_kind(TkRParen, "expected ')' after handler return parameter")
+  self.skip_separators()
+  { param, body: self.parse_expr() }
 }
 
 ///|
@@ -225,7 +246,8 @@ fn Parser::parse_handler_clause(self : Parser) -> HandlerClause raise MokaError 
       self.skip_separators()
       HandlerClause::Fun(name, params, self.parse_expr())
     }
-    _ => parser_error(self.peek(), "expected `val` or `fun` in handler")
+    _ =>
+      parser_error(self.peek(), "expected `val`, `fun`, or `return` in handler")
   }
 }
 

@@ -26,6 +26,7 @@ priv struct UserClosure {
 ///|
 priv struct HandlerValue {
   clauses : Array[HandlerClause]
+  return_clause : ReturnClause?
   env : Int
 }
 
@@ -370,8 +371,10 @@ fn eval_expr(
       runtime.assign(env_id, name, eval_expr(runtime, env_id, value))
     Expr::Match(subject, cases) =>
       eval_match_expr(runtime, env_id, subject, cases)
-    Expr::Handler(clauses) =>
-      Value::Function(FunctionValue::Handler({ clauses, env: env_id }))
+    Expr::Handler(clauses, return_clause) =>
+      Value::Function(
+        FunctionValue::Handler({ clauses, return_clause, env: env_id }),
+      )
     Expr::Block(stmts) => {
       let block_env = runtime.new_env(env_id)
       eval_statements(runtime, block_env, stmts)
@@ -415,6 +418,18 @@ fn install_handler_clauses(
         )
     }
   }
+}
+
+///|
+fn eval_return_clause(
+  runtime : Runtime,
+  handler_env : Int,
+  clause : ReturnClause,
+  value : Value,
+) -> Value raise MokaError {
+  let return_env = runtime.new_env(handler_env)
+  runtime.bind_value(return_env, clause.param, value, false)
+  eval_expr(runtime, return_env, clause.body)
 }
 
 ///|
@@ -731,8 +746,13 @@ fn apply_function(
           raise err
         }
       }
+      let final_result = if handler.return_clause is Some(clause) {
+        eval_return_clause(runtime, handler_env, clause, result)
+      } else {
+        result
+      }
       runtime.dynamic_envs.pop() |> ignore
-      result
+      final_result
     }
   }
 }

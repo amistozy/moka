@@ -38,6 +38,7 @@ priv enum TokenKind {
   TkMatch
   TkWith
   TkOverride
+  TkReturn
   TkThen
   TkElif
   TkElse
@@ -72,7 +73,7 @@ priv enum Expr {
   Index(Expr, Expr)
   Assign(String, Expr)
   Match(Expr, Array[MatchCase])
-  Handler(Array[HandlerClause])
+  Handler(Array[HandlerClause], ReturnClause?)
   Block(Array[Stmt])
 }
 
@@ -97,6 +98,12 @@ priv enum Pattern {
 priv enum HandlerClause {
   Val(String, Expr)
   Fun(String, Array[String], Expr)
+}
+
+///|
+priv struct ReturnClause {
+  param : String
+  body : Expr
 }
 
 ///|
