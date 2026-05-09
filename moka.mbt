@@ -53,6 +53,7 @@ priv enum TokenKind {
   TkVar
   TkFun
   TkFn
+  TkHandler
   TkIf
   TkMatch
   TkWith
@@ -91,6 +92,7 @@ priv enum Expr {
   Index(Expr, Expr)
   Assign(String, Expr)
   Match(Expr, Array[MatchCase])
+  Handler(Array[HandlerClause])
   Block(Array[Stmt])
 }
 
@@ -112,11 +114,16 @@ priv enum Pattern {
 }
 
 ///|
+priv enum HandlerClause {
+  Val(String, Expr)
+  Fun(String, Array[String], Expr)
+}
+
+///|
 priv enum Stmt {
   Val(String, Expr)
   Var(String, Expr)
   Fun(String, Array[String], Expr)
-  WithVal(String, Expr, Stmt)
   WithOverride(String, Array[String], Expr, Stmt)
   With(WithBinding, Expr, Stmt)
   Expr(Expr)
@@ -210,6 +217,7 @@ fn keyword_or_ident(name : String) -> TokenKind {
     "var" => TkVar
     "fun" => TkFun
     "fn" => TkFn
+    "handler" => TkHandler
     "if" => TkIf
     "match" => TkMatch
     "with" => TkWith
@@ -778,7 +786,11 @@ fn Parser::parse_with_statement(
       raise Parse("`with fun` expects a following statement or block")
     }
     let body = Stmt::Expr(Expr::Block(self.parse_stmt_list(until_rbrace)))
-    return Stmt::WithVal(name, Expr::Lambda(params, fun_body), body)
+    return Stmt::With(
+      WithBinding::None,
+      Expr::Handler([HandlerClause::Fun(name, params, fun_body)]),
+      body,
+    )
   }
   if self.peek().kind == TkVal {
     self.advance() |> ignore
@@ -790,7 +802,11 @@ fn Parser::parse_with_statement(
       raise Parse("`with val` expects a following statement or block")
     }
     let body = Stmt::Expr(Expr::Block(self.parse_stmt_list(until_rbrace)))
-    return Stmt::WithVal(name, value, body)
+    return Stmt::With(
+      WithBinding::None,
+      Expr::Handler([HandlerClause::Val(name, value)]),
+      body,
+    )
   }
   let binding = match self.peek().kind {
     TkIdent(name) =>
@@ -811,6 +827,40 @@ fn Parser::parse_with_statement(
   }
   let body = Stmt::Expr(Expr::Block(self.parse_stmt_list(until_rbrace)))
   Stmt::With(binding, handler, body)
+}
+
+///|
+fn Parser::finish_handler(self : Parser) -> Expr raise MokaError {
+  self.skip_separators()
+  self.expect_kind(TkLBrace, "expected an indented handler block or '{'")
+  self.skip_separators()
+  let clauses : Array[HandlerClause] = []
+  while self.peek().kind != TkRBrace {
+    clauses.push(self.parse_handler_clause())
+    self.skip_separators()
+  }
+  self.expect_kind(TkRBrace, "expected '}' after handler clauses")
+  Expr::Handler(clauses)
+}
+
+///|
+fn Parser::parse_handler_clause(self : Parser) -> HandlerClause raise MokaError {
+  match self.peek().kind {
+    TkVal => {
+      self.advance() |> ignore
+      let name = self.consume_ident("handler value clause")
+      self.expect_kind(TkEqual, "expected '=' after handler value name")
+      HandlerClause::Val(name, self.parse_expr())
+    }
+    TkFun => {
+      self.advance() |> ignore
+      let name = self.consume_ident("handler function clause")
+      let params = self.parse_params()
+      self.skip_separators()
+      HandlerClause::Fun(name, params, self.parse_expr())
+    }
+    _ => parser_error(self.peek(), "expected `val` or `fun` in handler")
+  }
 }
 
 ///|
@@ -1034,6 +1084,7 @@ fn Parser::parse_primary(self : Parser) -> Expr raise MokaError {
     }
     TkLBracket => self.finish_list()
     TkMatch => self.finish_match()
+    TkHandler => self.finish_handler()
     TkLBrace => Expr::Block(self.finish_block())
     TkIf => self.finish_if()
     TkFn => {
@@ -1160,6 +1211,7 @@ priv enum Value {
 ///|
 priv enum FunctionValue {
   User(UserClosure)
+  Handler(HandlerValue)
   Native(NativeFn)
 }
 
@@ -1168,6 +1220,12 @@ priv struct UserClosure {
   name : String?
   params : Array[String]
   body : Expr
+  env : Int
+}
+
+///|
+priv struct HandlerValue {
+  clauses : Array[HandlerClause]
   env : Int
 }
 
@@ -1391,6 +1449,7 @@ fn render_value(value : Value) -> String {
       } else {
         "<fn>"
       }
+    Value::Function(FunctionValue::Handler(_)) => "<handler>"
     Value::Function(FunctionValue::Native(native)) => "<native \{native.name}>"
   }
 }
@@ -1456,20 +1515,6 @@ fn eval_stmt(
       )
       Value::Null
     }
-    Stmt::WithVal(name, value, body) => {
-      let with_env = runtime.new_env(env_id)
-      let bound_value = eval_expr(runtime, env_id, value)
-      runtime.bind_value(with_env, name, bound_value, false)
-      runtime.dynamic_envs.push(with_env)
-      let result = eval_stmt(runtime, env_id, body) catch {
-        err => {
-          runtime.dynamic_envs.pop() |> ignore
-          raise err
-        }
-      }
-      runtime.dynamic_envs.pop() |> ignore
-      result
-    }
     Stmt::WithOverride(name, params, fun_body, body) =>
       eval_with_override(runtime, env_id, name, params, fun_body, body)
     Stmt::With(binding, handler, body) =>
@@ -1525,6 +1570,8 @@ fn eval_expr(
       runtime.assign(env_id, name, eval_expr(runtime, env_id, value))
     Expr::Match(subject, cases) =>
       eval_match_expr(runtime, env_id, subject, cases)
+    Expr::Handler(clauses) =>
+      Value::Function(FunctionValue::Handler({ clauses, env: env_id }))
     Expr::Block(stmts) => {
       let block_env = runtime.new_env(env_id)
       eval_statements(runtime, block_env, stmts)
@@ -1535,6 +1582,39 @@ fn eval_expr(
 ///|
 fn stmt_to_block_expr(stmt : Stmt) -> Expr {
   Expr::Block([stmt])
+}
+
+///|
+fn install_handler_clauses(
+  runtime : Runtime,
+  handler_env : Int,
+  clauses : Array[HandlerClause],
+) -> Unit raise MokaError {
+  for clause in clauses {
+    match clause {
+      HandlerClause::Val(name, expr) =>
+        runtime.bind_value(
+          handler_env,
+          name,
+          eval_expr(runtime, handler_env, expr),
+          false,
+        )
+      HandlerClause::Fun(name, params, body) =>
+        runtime.bind_value(
+          handler_env,
+          name,
+          Value::Function(
+            FunctionValue::User(UserClosure::{
+              name: Some(name),
+              params,
+              body,
+              env: handler_env,
+            }),
+          ),
+          false,
+        )
+    }
+  }
 }
 
 ///|
@@ -1837,6 +1917,22 @@ fn apply_function(
         runtime.bind_value(local_env, closure.params[i], args[i], false)
       }
       eval_expr(runtime, local_env, closure.body)
+    }
+    FunctionValue::Handler(handler) => {
+      guard args.length() == 1 else {
+        runtime_error("handler expected 1 argument but got \{args.length()}")
+      }
+      let handler_env = runtime.new_env(handler.env)
+      install_handler_clauses(runtime, handler_env, handler.clauses)
+      runtime.dynamic_envs.push(handler_env)
+      let result = apply_function(runtime, args[0], []) catch {
+        err => {
+          runtime.dynamic_envs.pop() |> ignore
+          raise err
+        }
+      }
+      runtime.dynamic_envs.pop() |> ignore
+      result
     }
   }
 }

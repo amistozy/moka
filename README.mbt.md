@@ -25,6 +25,7 @@ Moka currently supports:
 - `if` / `elif` / `else`
 - `match` expressions
 - `with`, `with val`, `with fun`, and `with override`
+- `handler` and `with handler` for dynamic value/function handlers
 - a small set of built-ins: `len`, `type`, and `str`
 
 ## Running
@@ -219,9 +220,34 @@ n := n + 2
 n
 ```
 
+### `handler`
+
+Moka also has a minimal `handler` expression.
+For now, handlers support `val` and `fun` clauses and are applied to a zero-argument action function.
+
+```moka
+val h = handler
+  val ask = 21
+
+h(fn() ask + ask)
+```
+
+### `with handler`
+
+`with handler` is the statement form of the same idea:
+
+```moka
+fun ask_twice()
+  ask + ask
+
+with handler
+  val ask = 21
+ask_twice()
+```
+
 ### `with val`
 
-`with val` installs a dynamic value binding for the remaining statements in the current scope:
+`with val` is sugar for a one-clause handler with a `val` binding:
 
 ```moka
 fun pretty(doc)
@@ -234,7 +260,7 @@ fun pretty_thin(doc)
 
 ### `with fun`
 
-`with fun` installs a dynamic function binding:
+`with fun` is sugar for a one-clause handler with a `fun` binding:
 
 ```moka
 fun hello()

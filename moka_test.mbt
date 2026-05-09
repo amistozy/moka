@@ -79,6 +79,40 @@ test "nested with composes through layout" {
 }
 
 ///|
+test "handler expression can be applied directly" {
+  let source =
+    #|val h = handler
+    #|  val ask = 21
+    #|h(fn() ask + ask)
+  let result = @moka.eval(source) catch { _ => panic() }
+  inspect(result, content="42")
+}
+
+///|
+test "with handler installs dynamic values" {
+  let source =
+    #|fun ask_twice()
+    #|  ask + ask
+    #|with handler
+    #|  val ask = 21
+    #|ask_twice()
+  let result = @moka.eval(source) catch { _ => panic() }
+  inspect(result, content="42")
+}
+
+///|
+test "with handler installs dynamic functions" {
+  let source =
+    #|fun hello()
+    #|  emit("world")
+    #|with handler
+    #|  fun emit(msg) "hello, " + msg
+    #|hello()
+  let result = @moka.eval(source) catch { _ => panic() }
+  inspect(result, content="\"hello, world\"")
+}
+
+///|
 test "with binding passes produced value into body" {
   let source =
     #|fun supply(f)
