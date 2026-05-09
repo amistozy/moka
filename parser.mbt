@@ -397,7 +397,9 @@ fn Parser::parse_postfix(self : Parser) -> Expr raise MokaError {
         expr = Expr::Call(expr, args)
       }
       TkLBrace if can_take_suspender(expr) =>
-        expr = Expr::Call(expr, [self.parse_suspender()])
+        expr = append_trailing_arg(expr, self.parse_suspender())
+      TkFn if can_take_trailing_lambda(expr) =>
+        expr = append_trailing_arg(expr, self.parse_trailing_lambda())
       TkLBracket => {
         self.advance() |> ignore
         let index = self.parse_expr()
@@ -421,6 +423,14 @@ fn Parser::parse_postfix(self : Parser) -> Expr raise MokaError {
 }
 
 ///|
+fn append_trailing_arg(expr : Expr, arg : Expr) -> Expr {
+  match expr {
+    Expr::Call(callee, args) => Expr::Call(callee, args + [arg])
+    _ => Expr::Call(expr, [arg])
+  }
+}
+
+///|
 fn can_take_suspender(expr : Expr) -> Bool {
   match expr {
     Expr::Var(_) | Expr::Call(_, _) | Expr::Index(_, _) => true
@@ -429,9 +439,22 @@ fn can_take_suspender(expr : Expr) -> Bool {
 }
 
 ///|
+fn can_take_trailing_lambda(expr : Expr) -> Bool {
+  can_take_suspender(expr)
+}
+
+///|
 fn Parser::parse_suspender(self : Parser) -> Expr raise MokaError {
   self.expect_kind(TkLBrace, "expected '{' to start a suspender block")
   Expr::Lambda([], Expr::Block(self.finish_block()))
+}
+
+///|
+fn Parser::parse_trailing_lambda(self : Parser) -> Expr raise MokaError {
+  self.expect_kind(TkFn, "expected 'fn' to start a trailing lambda")
+  let params = self.parse_params()
+  self.skip_separators()
+  Expr::Lambda(params, self.parse_expr())
 }
 
 ///|

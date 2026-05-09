@@ -283,3 +283,25 @@ test "layout after a callee becomes a trailing block lambda" {
   let result = @moka.eval(source) catch { _ => panic() }
   inspect(result, content="2")
 }
+
+///|
+test "trailing fn appends a lambda to an existing call" {
+  let source =
+    #|fun apply(x, f)
+    #|  f(x)
+    #|apply(21) fn(x)
+    #|  x + 21
+  let result = @moka.eval(source) catch { _ => panic() }
+  inspect(result, content="42")
+}
+
+///|
+test "dot call sugar works with trailing fn lambdas" {
+  let source =
+    #|fun apply(x, f)
+    #|  f(x)
+    #|21.apply fn(x)
+    #|  x + 21
+  let result = @moka.eval(source) catch { _ => panic() }
+  inspect(result, content="42")
+}
